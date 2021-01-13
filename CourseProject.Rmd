@@ -25,8 +25,20 @@ wd <- "C:/Users/bptin/Dropbox/JHU_certification/Machine Learning"
 
 setwd(wd)
 
-training <- read.csv("pml-training.csv")
-testing <- read.csv("pml-testing.csv")
+x <- read.csv("pml-training.csv")
+
+```
+
+In order to make sure our model is accurate, we will split the data into testing and training sets, with the training set containing 70% of our thousands of observations.
+
+```{r cross-validation, warning=FALSE, message=FALSE, echo=TRUE}
+require(caret)
+set.seed(661)
+
+inTrain = createDataPartition(y=x$classe,p=0.7, list=FALSE)
+
+training = x[inTrain,]
+testing = x[-inTrain,]
 
 ```
 
@@ -37,19 +49,22 @@ The first thing we can see is that there are a LOT of variables, `r length(names
 classe <- training$classe
 classe <- as.factor(classe); classe <- ordered(classe)
 
-remove <- sapply(training[,1:dim(training)[2]], is.character)
+classe2 <- testing$classe
+classe2 <- as.factor(classe2); classe2 <- ordered(classe2)
+
+remove <- sapply(training[1:dim(training)[2]], is.character)
 training <- training[!remove]; testing <- testing[!remove]
 
 training$classe <- classe
+testing$classe <- classe2
 
 ```
 
 Since we have a ton of observations with missing values, we can subset our data even further now, but this time row-wise. We can preprocess our data with K nearest neighbors in order to impute our missing values and make our data more robust:
 
-``` {r removing non-complete cases, message=FALSE}
-require(RANN); require(caret)
+``` {r k nearest neighbors, message=FALSE}
+require(RANN)
 
-set.seed(12345)
 knn <- preProcess(training, method = "knnImpute")
 training <- predict(knn, training)
 
@@ -105,13 +120,16 @@ model2
 
 We can see from the results that our bagged CART model is *far* superior in terms of in sample error to our original tree model (though it took far too long to process on my tiny laptop). This means we can likely reject our first model in favor of our second, and there is no need to stack models or otherwise combine our predictors.
 
-From here it is time to apply our final model to the testing data. Since our in sample error is right around 5%, we might expect our out of sample error to be closer to 10%. Because we did some pre processing on our training data, we must do the same to our testing data as well. This means we must perform k nearest neighbors to impute missing values and also perform principle component analysis.  
+From here it is time to apply our final model to the testing data. Because we did some pre processing on our training data, we must do the same to our testing data as well. This means we must perform k nearest neighbors to impute missing values and also perform principle component analysis.  
 
 ``` {r final}
-
+ 
 testing <- predict(knn, testing)
 testPC <- predict(pca, testing)
 
-predict(model2, testPC)
+final <- predict(model2, testPC)
+confusionMatrix(final, testing$classe)
 
 ```
+
+We can see that our model is incredibly accurate.
