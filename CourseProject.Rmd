@@ -1,0 +1,117 @@
+---
+title: "Course Project ML"
+author: "Brendan P Tinoco"
+date: "1/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Premise
+
+The purpose of this document is to predict the manner in which each of the six individuals did the exercises based on the training data provided. 
+
+## Set Up and Exploration
+
+We will start by loading our testing and training data.
+
+``` {r wd, echo=FALSE}
+wd <- "C:/Users/bptin/Dropbox/JHU_certification/Machine Learning"
+```
+
+```{r loading data}
+
+setwd(wd)
+
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+
+```
+
+The first thing we can see is that there are a LOT of variables, `r length(names(training))` to be exact. This leaves a lot of ambiguity in how to build our prediction model (especially considering I do not have any experience in gyroscopes and sport science). Any of the variables that are listed as character are going to be removed so that we can do a clean numeric analysis. We will also reclassify the classe variable into a factor, with "A" indicating a successful attempt at the exercise and anything else indicating some sort of mistake. We will also remove these variables from the testing data set.
+
+``` {r, message = FALSE, warning = FALSE}
+
+classe <- training$classe
+classe <- as.factor(classe); classe <- ordered(classe)
+
+remove <- sapply(training[,1:dim(training)[2]], is.character)
+training <- training[!remove]; testing <- testing[!remove]
+
+training$classe <- classe
+
+```
+
+Since we have a ton of observations with missing values, we can subset our data even further now, but this time row-wise. We can preprocess our data with K nearest neighbors in order to impute our missing values and make our data more robust:
+
+``` {r removing non-complete cases, message=FALSE}
+require(RANN); require(caret)
+
+set.seed(12345)
+knn <- preProcess(training, method = "knnImpute")
+training <- predict(knn, training)
+
+```
+
+## Principal Component Analysis
+
+Now that we have removed our non-complete cases from the analysis, we can narrow down our variables even further by performing a principle component analysis of our data. This will reduce the number of variables necessary for our final prediction! Note that we will also be centering and scaling the data. We will select a variance threshold of 0.95, so that we retain 95% of the variance of the original data:
+
+``` {r PCA, message=FALSE}
+
+pca <- preProcess(training[,-124], method = "pca", thresh = 0.95)
+
+```
+
+This results in `r pca$numComp` principle components that we can use in our prediction, reduced down from 124. 
+
+## Model One: CART
+
+From here we want to make a training prediction and after that we can use the `caret::train` function to fit a model to our principal component data for our final prediction. Because we are trying to predict classifications, rather than either a binary outcome or quantitative outcome, we cannot use linear regression. So, we will instead use a CART model to make our prediction, and can visualize our algorithm with the `rattle` package.
+
+``` {r predict, message=FALSE}
+
+require(rattle)
+
+trainPC <- predict(pca, training)
+model1 <- train(classe ~ ., method="rpart", data = trainPC)
+
+fancyRpartPlot(model1$finalModel)
+
+```
+
+We can see from here that there is not much here in the way of interpretability, since they are all based on our PCA. We can evaluate the model itself by calling the model object:
+
+``` {r model one}
+
+model1
+
+```
+
+We can see here that our in sample accuracy is not particularly good, with the algorithm getting the correct answer less than 50% of the time.
+
+## Model Two: Bagged CART
+
+We can try a new model, this time using the bagging method. Keep in mind, we will continue to use the principal component data for this analysis:
+
+``` {r bagging model}
+
+model2 <- train(classe ~ ., method="treebag", data = trainPC)
+model2
+
+```
+
+We can see from the results that our bagged CART model is *far* superior in terms of in sample error to our original tree model (though it took far too long to process on my tiny laptop). This means we can likely reject our first model in favor of our second, and there is no need to stack models or otherwise combine our predictors.
+
+From here it is time to apply our final model to the testing data. Since our in sample error is right around 5%, we might expect our out of sample error to be closer to 10%. Because we did some pre processing on our training data, we must do the same to our testing data as well. This means we must perform k nearest neighbors to impute missing values and also perform principle component analysis.  
+
+``` {r final}
+
+testing <- predict(knn, testing)
+testPC <- predict(pca, testing)
+
+predict(model2, testPC)
+
+```
